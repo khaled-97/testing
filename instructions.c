@@ -6,9 +6,16 @@
 #include "instructions.h"
 #include "utils.h"
 #include "symbol_table.h"
+#include "code.h"  /* For ARE_ABSOLUTE definition */
+
+/* Debug flag for instructions */
+#define DEBUG_INSTRUCTIONS 1
 
 /* Find instruction type from line starting at index */
 Directive get_instruction_type(SourceLine line, int *index) {
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Checking for directive at index %d: %s\n", *index, line.text + *index);
+    }
     struct {
         const char *name;
         Directive type;
@@ -21,22 +28,35 @@ Directive get_instruction_type(SourceLine line, int *index) {
     };
     int i;
     
-    if (line.text[*index] != '.')
+    if (line.text[*index] != '.') {
+        if (DEBUG_INSTRUCTIONS) {
+            printf("[DEBUG] Instructions: No directive found (not starting with '.')\n");
+        }
         return DIR_NONE;
+    }
     
     for (i = 0; directives[i].name; i++) {
         int len = str_len(directives[i].name);
         if (strncmp(line.text + *index, directives[i].name, len) == 0) {
             *index += len;
+            if (DEBUG_INSTRUCTIONS) {
+                printf("[DEBUG] Instructions: Found directive: %s\n", directives[i].name);
+            }
             return directives[i].type;
         }
     }
     
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Invalid directive\n");
+    }
     return DIR_ERROR;
 }
 
 /* Process .data instruction */
 Bool process_data_inst(SourceLine line, int start_idx, long *data_img, long *dc) {
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Processing .data directive at index %d\n", start_idx);
+    }
     int i = start_idx;
     char num_str[MAX_SOURCE_LINE];
     int num_idx;
@@ -49,6 +69,9 @@ Bool process_data_inst(SourceLine line, int start_idx, long *data_img, long *dc)
     /* Check for empty data directive */
     if (!line.text[i] || line.text[i] == '\n') {
         print_error(line, "Empty .data directive");
+        if (DEBUG_INSTRUCTIONS) {
+            printf("[DEBUG] Instructions: Empty .data directive\n");
+        }
         return FALSE;
     }
     
@@ -95,11 +118,36 @@ Bool process_data_inst(SourceLine line, int start_idx, long *data_img, long *dc)
         value = get_number(num_str, &success);
         if (!success) {
             print_error(line, "Number conversion failed for '%s'", num_str);
+            if (DEBUG_INSTRUCTIONS) {
+                printf("[DEBUG] Instructions: Number conversion failed for '%s'\n", num_str);
+            }
             return FALSE;
         }
         
-        /* Store value */
-        data_img[*dc] = value;
+    /* Store value directly without ARE bits for .data directives */
+    data_img[*dc] = value;
+        if (DEBUG_INSTRUCTIONS) {
+            printf("[DEBUG] Instructions: Stored data value %ld at DC=%ld\n", value, *dc);
+            printf("[DEBUG] Instructions: This will be encoded as a 24-bit word in the object file\n");
+            printf("[DEBUG] Instructions: Data word structure:\n");
+            printf("[DEBUG] Instructions:   Value (bits 3-23): %ld\n", value);
+            printf("[DEBUG] Instructions:   ARE (bits 0-2): 0 (absolute)\n");
+            
+            /* Calculate the 24-bit word value for debugging */
+            unsigned long word_value = ((unsigned long)value << 3);
+            printf("[DEBUG] Instructions:   24-bit word value: 0x%06lx\n", word_value & 0xFFFFFF);
+            
+            /* Show binary representation */
+            char binary[25];
+            unsigned long mask = 1UL << 23;
+            int i;
+            for (i = 0; i < 24; i++) {
+                binary[i] = (word_value & mask) ? '1' : '0';
+                mask >>= 1;
+            }
+            binary[24] = '\0';
+            printf("[DEBUG] Instructions:   Binary representation: %s\n", binary);
+        }
         (*dc)++;
         
         /* Skip whitespace and check commas */
@@ -125,11 +173,17 @@ Bool process_data_inst(SourceLine line, int start_idx, long *data_img, long *dc)
         }
     }
     
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Successfully processed .data directive\n");
+    }
     return TRUE;
 }
 
 /* Process .string instruction */
 Bool process_string_inst(SourceLine line, int start_idx, long *data_img, long *dc) {
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Processing .string directive at index %d\n", start_idx);
+    }
     int i = start_idx;
     
     skip_whitespace(line.text, &i);
@@ -137,6 +191,9 @@ Bool process_string_inst(SourceLine line, int start_idx, long *data_img, long *d
     /* String must start with quote */
     if (line.text[i] != '"') {
         print_error(line, "String must begin with quote");
+        if (DEBUG_INSTRUCTIONS) {
+            printf("[DEBUG] Instructions: String must begin with quote\n");
+        }
         return FALSE;
     }
     i++;
@@ -145,9 +202,36 @@ Bool process_string_inst(SourceLine line, int start_idx, long *data_img, long *d
     while (line.text[i] && line.text[i] != '"') {
         if (line.text[i] == '\n') {
             print_error(line, "Unterminated string");
+            if (DEBUG_INSTRUCTIONS) {
+                printf("[DEBUG] Instructions: Unterminated string\n");
+            }
             return FALSE;
         }
+        /* Store character directly without ARE bits */
         data_img[*dc] = line.text[i];
+        if (DEBUG_INSTRUCTIONS) {
+            printf("[DEBUG] Instructions: Stored character '%c' (%d) at DC=%ld\n", 
+                   (char)line.text[i], (int)line.text[i], *dc);
+            printf("[DEBUG] Instructions: This will be encoded as a 24-bit word in the object file\n");
+            printf("[DEBUG] Instructions: Character word structure:\n");
+            printf("[DEBUG] Instructions:   ASCII value (bits 3-23): %d\n", (int)line.text[i]);
+            printf("[DEBUG] Instructions:   ARE (bits 0-2): 0 (absolute)\n");
+            
+            /* Calculate the 24-bit word value for debugging */
+            unsigned long word_value = ((unsigned long)line.text[i] << 3);
+            printf("[DEBUG] Instructions:   24-bit word value: 0x%06lx\n", word_value & 0xFFFFFF);
+            
+            /* Show binary representation */
+            char binary[25];
+            unsigned long mask = 1UL << 23;
+            int j;
+            for (j = 0; j < 24; j++) {
+                binary[j] = (word_value & mask) ? '1' : '0';
+                mask >>= 1;
+            }
+            binary[24] = '\0';
+            printf("[DEBUG] Instructions:   Binary representation: %s\n", binary);
+        }
         (*dc)++;
         i++;
     }
@@ -155,12 +239,36 @@ Bool process_string_inst(SourceLine line, int start_idx, long *data_img, long *d
     /* String must end with quote */
     if (line.text[i] != '"') {
         print_error(line, "String must end with quote");
+        if (DEBUG_INSTRUCTIONS) {
+            printf("[DEBUG] Instructions: String must end with quote\n");
+        }
         return FALSE;
     }
     i++;
     
-    /* Add null terminator */
-    data_img[*dc] = 0;
+    /* Add null terminator without ARE bits */
+    data_img[*dc] = 0; /* Zero value */
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Added null terminator at DC=%ld\n", *dc);
+        printf("[DEBUG] Instructions: This will be encoded as a 24-bit word in the object file\n");
+        printf("[DEBUG] Instructions: Null terminator word structure:\n");
+        printf("[DEBUG] Instructions:   Value (bits 3-23): 0\n");
+        printf("[DEBUG] Instructions:   ARE (bits 0-2): 0 (absolute)\n");
+        
+        /* Calculate the 24-bit word value for debugging */
+        unsigned long word_value = 0;
+        printf("[DEBUG] Instructions:   24-bit word value: 0x%06lx\n", word_value & 0xFFFFFF);
+        
+        /* Show binary representation */
+        char binary[25];
+        unsigned long mask = 1UL << 23;
+        int i;
+        for (i = 0; i < 24; i++) {
+            binary[i] = '0';  /* All zeros for null terminator */
+        }
+        binary[24] = '\0';
+        printf("[DEBUG] Instructions:   Binary representation: %s\n", binary);
+    }
     (*dc)++;
     
     /* Check for extra content */
@@ -170,11 +278,17 @@ Bool process_string_inst(SourceLine line, int start_idx, long *data_img, long *d
         return FALSE;
     }
     
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Successfully processed .string directive\n");
+    }
     return TRUE;
 }
 
 /* Process .extern instruction */
 Bool process_extern_inst(SourceLine line, int start_idx, SymbolTable* symbols) {
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Processing .extern directive at index %d\n", start_idx);
+    }
     int i = start_idx;
     char label[MAX_SOURCE_LINE];
     int label_idx = 0;
@@ -190,11 +304,17 @@ Bool process_extern_inst(SourceLine line, int start_idx, SymbolTable* symbols) {
     /* Validate label */
     if (!is_valid_label(label)) {
         print_error(line, "Invalid external label: %s", label);
+        if (DEBUG_INSTRUCTIONS) {
+            printf("[DEBUG] Instructions: Invalid external label: %s\n", label);
+        }
         return FALSE;
     }
     
     /* Add to symbol table */
     add_symbol(symbols, label, 0, SYMBOL_EXTERN);
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Added external symbol: %s\n", label);
+    }
     
     /* Check for extra content */
     skip_whitespace(line.text, &i);
@@ -203,6 +323,9 @@ Bool process_extern_inst(SourceLine line, int start_idx, SymbolTable* symbols) {
         return FALSE;
     }
     
+    if (DEBUG_INSTRUCTIONS) {
+        printf("[DEBUG] Instructions: Successfully processed .extern directive\n");
+    }
     return TRUE;
 }
 

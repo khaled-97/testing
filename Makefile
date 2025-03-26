@@ -40,4 +40,4 @@ run: $(TARGET)
 
 # Clean generated files
 clean:
-	rm -f $(OBJS) $(TARGET) $(INPUT).ob $(INPUT).ext $(INPUT).ent $(INPUT).am
+	rm -f $(OBJS) $(TARGET) *.ob *.ext *.ent *.am

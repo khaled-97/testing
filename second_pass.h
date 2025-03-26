@@ -28,7 +28,8 @@ Bool process_operand_second_pass(
     long *start_ic,      /* Start of instruction */
     char *operand,       /* Operand to process */
     MachineWord **code,  /* Code image */
-    SymbolTable *symbols /* Symbol table */
+    SymbolTable *symbols, /* Symbol table */
+    OpCode opcode        /* Operation code for validation */
 );
 
 #endif /* SECOND_PASS_H */

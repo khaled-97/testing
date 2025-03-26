@@ -93,6 +93,35 @@ Bool process_line_second_pass(SourceLine line, long *ic, MachineWord **code, Sym
     return resolve_symbols(line, ic, code, symbols);
 }
 
+/* Get opcode from instruction line */
+static OpCode get_opcode_from_line(SourceLine line) {
+    int index = 0;
+    char op[MAX_OP_LEN + 1];
+    int i;
+    OpCode opcode;
+    FuncCode func;
+    
+    /* Skip label if exists */
+    if (str_chr(line.text, ':')) {
+        while (line.text[index] && line.text[index] != ':') index++;
+        index++;
+    }
+    
+    skip_whitespace(line.text, &index);
+    
+    /* Get operation name */
+    for (i = 0; i < MAX_OP_LEN && line.text[index] && 
+        line.text[index] != ' ' && line.text[index] != '\t' && 
+        line.text[index] != '\n'; i++, index++) {
+        op[i] = line.text[index];
+    }
+    op[i] = '\0';
+    
+    /* Get operation details */
+    get_operation_details(op, &opcode, &func);
+    return opcode;
+}
+
 /* Add symbols to code words */
 Bool resolve_symbols(SourceLine line, long *ic, MachineWord **code, SymbolTable *symbols) {
     char label[MAX_SOURCE_LINE];
@@ -101,6 +130,7 @@ Bool resolve_symbols(SourceLine line, long *ic, MachineWord **code, SymbolTable 
     Bool success = TRUE;
     long curr_ic = *ic;
     int inst_len;
+    OpCode opcode;
     
     /* Get instruction length */
     inst_len = code[(*ic) - START_IC]->is_instruction;
@@ -116,6 +146,9 @@ Bool resolve_symbols(SourceLine line, long *ic, MachineWord **code, SymbolTable 
     
     skip_whitespace(line.text, &index);
     
+    /* Get opcode for later validation */
+    opcode = get_opcode_from_line(line);
+    
     /* Skip operation name */
     while (line.text[index] && !strchr(" \t\n", line.text[index])) index++;
     skip_whitespace(line.text, &index);
@@ -127,11 +160,11 @@ Bool resolve_symbols(SourceLine line, long *ic, MachineWord **code, SymbolTable 
     
     /* Process operands */
     if (op_count > 0) {
-        success = process_operand_second_pass(line, &curr_ic, ic, operands[0], code, symbols);
+        success = process_operand_second_pass(line, &curr_ic, ic, operands[0], code, symbols, opcode);
         free(operands[0]);
         
         if (success && op_count > 1) {
-            success = process_operand_second_pass(line, &curr_ic, ic, operands[1], code, symbols);
+            success = process_operand_second_pass(line, &curr_ic, ic, operands[1], code, symbols, opcode);
             free(operands[1]);
         }
     }
@@ -143,7 +176,8 @@ Bool resolve_symbols(SourceLine line, long *ic, MachineWord **code, SymbolTable 
 
 /* Process operand in second pass */
 Bool process_operand_second_pass(SourceLine line, long *curr_ic, long *start_ic, 
-                               char *operand, MachineWord **code, SymbolTable *symbols) {
+                               char *operand, MachineWord **code, SymbolTable *symbols,
+                               OpCode opcode) {
     AddressMode mode = get_addressing_mode(operand);
     MachineWord *word;
     
@@ -158,6 +192,7 @@ Bool process_operand_second_pass(SourceLine line, long *curr_ic, long *start_ic,
         long value;
         SymbolEntry *symbol;
         char *sym_name = operand;
+        unsigned int are_value;
         
         /* Remove & for relative addressing */
         if (mode == RELATIVE) sym_name++;
@@ -176,46 +211,62 @@ Bool process_operand_second_pass(SourceLine line, long *curr_ic, long *start_ic,
         printf("Found symbol: %s, type: %d, address: %ld\n", 
                symbol->name, symbol->type, symbol->address);
         
-        /* Calculate value */
-        value = symbol->address;
-        if (mode == RELATIVE) {
-            if (symbol->type != SYMBOL_CODE) {
-                print_error(line, "Symbol %s must be code label for relative addressing", sym_name);
-                return FALSE;
-            }
-            value -= *start_ic;  /* Relative distance */
+        /* Validate relative addressing usage with jump instructions */
+        if (mode == RELATIVE && opcode != OP_JUMPS) {
+            print_error(line, "Relative addressing mode (&) can only be used with jump instructions (jmp, bne, jsr)");
+            return FALSE;
         }
         
-/* Add external reference if needed */
-if (symbol->type == SYMBOL_EXTERN) {
-    /* In original implementation, we just need to handle external references 
-       differently. The original code keeps track of where externals are used. */
-    /* Create a new entry for this reference with the actual address */
-    SymbolEntry *new_entry = (SymbolEntry*)safe_malloc(sizeof(SymbolEntry));
-    /* Allocate memory for name and copy it (ANSI C compliant) */
-    new_entry->name = (char*)safe_malloc(strlen(sym_name) + 1);
-    strcpy(new_entry->name, sym_name);
-    new_entry->address = (*curr_ic) + 1;
-    new_entry->type = SYMBOL_EXTERN;
-    new_entry->next = NULL;
-    
-    /* Add to the end of the symbol table */
-    if (!symbols->first) {
-        symbols->first = new_entry;
-        symbols->last = new_entry;
-    } else {
-        symbols->last->next = new_entry;
-        symbols->last = new_entry;
-    }
-}
+        /* Calculate value based on addressing mode */
+        if (mode == DIRECT) {
+            /* Direct addressing - use the symbol's address */
+            value = symbol->address;
+            
+            /* Set the A, R, E bits */
+            if (symbol->type == SYMBOL_EXTERN) {
+                are_value = ARE_EXTERNAL; /* External symbol - set E bit */
+            } else {
+                are_value = ARE_RELOCATABLE; /* Internal symbol - set R bit */
+            }
+        } else { /* RELATIVE */
+            /* Relative addressing - calculate distance between current instruction and target */
+            if (symbol->type != SYMBOL_CODE) {
+                print_error(line, "Symbol %s must be a code label for relative addressing", sym_name);
+                return FALSE;
+            }
+            
+            /* Calculate distance in memory words */
+            value = symbol->address - (*start_ic);
+            
+            /* For relative addressing, A bit is set, R and E bits are 0 */
+            are_value = ARE_ABSOLUTE;
+        }
+        
+        /* Handle external references */
+        if (mode == DIRECT && symbol->type == SYMBOL_EXTERN) {
+            /* Create a new entry for this reference with the actual address */
+            SymbolEntry *new_entry = (SymbolEntry*)safe_malloc(sizeof(SymbolEntry));
+            /* Allocate memory for name and copy it (ANSI C compliant) */
+            new_entry->name = (char*)safe_malloc(strlen(sym_name) + 1);
+            strcpy(new_entry->name, sym_name);
+            new_entry->address = (*curr_ic) + 1;
+            new_entry->type = SYMBOL_EXTERN;
+            new_entry->next = NULL;
+            
+            /* Add to the end of the symbol table */
+            if (!symbols->first) {
+                symbols->first = new_entry;
+                symbols->last = new_entry;
+            } else {
+                symbols->last->next = new_entry;
+                symbols->last = new_entry;
+            }
+        }
         
         /* Create data word */
         word = (MachineWord*)safe_malloc(sizeof(MachineWord));
         word->is_instruction = 0;
-        word->content.data = create_data_word(
-            symbol->type == SYMBOL_EXTERN ? ARE_EXTERNAL : ARE_RELOCATABLE,
-            value
-        );
+        word->content.data = create_data_word(are_value, value);
         
         code[(++(*curr_ic)) - START_IC] = word;
     }

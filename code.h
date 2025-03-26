@@ -9,9 +9,9 @@
 #define MAX_OP_LEN 4
 
 /* ARE (Absolute/Relocatable/External) bits */
-#define ARE_ABSOLUTE 0
-#define ARE_RELOCATABLE 2
-#define ARE_EXTERNAL 1
+#define ARE_ABSOLUTE 4    /* Bit 2 (value 4) for Absolute */
+#define ARE_RELOCATABLE 2 /* Bit 1 (value 2) for Relocatable */
+#define ARE_EXTERNAL 1    /* Bit 0 (value 1) for External */
 
 /* Build a code word from components */
 InstructionWord* create_instruction_word(

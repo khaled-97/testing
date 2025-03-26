@@ -10,6 +10,9 @@
 #include "writefiles.h"
 #include "preprocessor.h"
 
+/* Debug flag for assembler */
+#define DEBUG_ASSEMBLER 1
+
 #define MAX_FILENAME 256
 
 /* Process a single assembly source file */
@@ -61,14 +64,30 @@ static Bool process_file(const char *filename) {
     line.filename = filename;
     
     /* First Pass */
+    if (DEBUG_ASSEMBLER) {
+        printf("[DEBUG] Assembler: Starting first pass\n");
+    }
+    
     while (fgets(line_buf, MAX_SOURCE_LINE, fp)) {
         line.num = line_num++;
         line.text = line_buf;
         
+        if (DEBUG_ASSEMBLER) {
+            printf("[DEBUG] Assembler: Processing line %ld in first pass\n", line.num);
+        }
+        
         if (!process_line_first_pass(line, &ic, &dc, code, data, symbols)) {
+            if (DEBUG_ASSEMBLER) {
+                printf("[DEBUG] Assembler: Error in first pass at line %ld\n", line.num);
+            }
             success = FALSE;
             break;
         }
+    }
+    
+    if (DEBUG_ASSEMBLER) {
+        printf("[DEBUG] Assembler: First pass %s\n", success ? "completed successfully" : "failed");
+        printf("[DEBUG] Assembler: Final IC=%ld, DC=%ld\n", ic, dc);
     }
     
     /* If first pass successful, update data symbols and do second pass */
@@ -77,9 +96,17 @@ static Bool process_file(const char *filename) {
         SymbolEntry *entry;
         long final_ic = ic;  /* Save the final IC */
         
+        if (DEBUG_ASSEMBLER) {
+            printf("[DEBUG] Assembler: Updating data symbol addresses by adding IC=%ld\n", final_ic);
+        }
+        
         /* Update all data symbols to have addresses after code */
         for (entry = symbols->first; entry; entry = entry->next) {
             if (entry->type == SYMBOL_DATA) {
+                if (DEBUG_ASSEMBLER) {
+                    printf("[DEBUG] Assembler: Updating data symbol %s from address %ld to %ld\n", 
+                           entry->name, entry->address, entry->address + final_ic);
+                }
                 entry->address += final_ic;
             }
         }
@@ -90,14 +117,29 @@ static Bool process_file(const char *filename) {
         ic = START_IC;
         
         /* Second Pass */
+        if (DEBUG_ASSEMBLER) {
+            printf("[DEBUG] Assembler: Starting second pass\n");
+        }
+        
         while (fgets(line_buf, MAX_SOURCE_LINE, fp)) {
             line.num = line_num++;
             line.text = line_buf;
             
+            if (DEBUG_ASSEMBLER) {
+                printf("[DEBUG] Assembler: Processing line %ld in second pass\n", line.num);
+            }
+            
             if (!process_line_second_pass(line, &ic, code, symbols)) {
+                if (DEBUG_ASSEMBLER) {
+                    printf("[DEBUG] Assembler: Error in second pass at line %ld\n", line.num);
+                }
                 success = FALSE;
                 break;
             }
+        }
+        
+        if (DEBUG_ASSEMBLER) {
+            printf("[DEBUG] Assembler: Second pass %s\n", success ? "completed successfully" : "failed");
         }
         
         /* If both passes successful, write output files */
