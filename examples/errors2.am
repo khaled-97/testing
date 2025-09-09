@@ -1,0 +1,35 @@
+; Example of syntax and semantic assembly errors
+  
+; Error: Label cannot be both entry and defined
+LABEL: mov r1, r2      
+; Error: Label defined twice
+
+
+       mov #1, #2      
+       ; Error: Invalid addressing - immediate to immediate
+   
+       ; Error: Cannot add string to register
+       lea #1, r1      
+       ; Error: Invalid source operand for lea
+       stop    
+       ; Error: Stop doesn't take operands
+
+; Invalid label usage
+       jmp    r3        
+       ; Error: Missing label operand
+  
+; Error: Label missing colon
+       jmp NON_EXIST  
+       ; Error: Jump to undefined label
+
+; Directive errors
+         
+; Error: String in .data directive
+          
+; Error: Number in .string directive
+
+; Error: Empty value in data list
+             
+; Error: Entry without label
+.extern LABEL        
+; Error: Label cannot be both external and defined

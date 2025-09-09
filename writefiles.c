@@ -1,54 +1,55 @@
-/* Output file writing implementation */
+/*
+ * Output File Writing Implementation
+ *
+ * This module handles the creation of all output files:
+ * 1. Object file (.ob) - Contains the assembled machine code
+ * 2. Entry file (.ent) - Lists entry symbols and their addresses
+ * 3. External file (.ext) - Lists external symbol references
+ *
+ * The object file format follows the 24-bit word specification
+ * with hexadecimal encoding and proper memory addressing.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "writefiles.h"
 #include "utils.h"
 
-/* Debug flag for writefiles */
-#define DEBUG_WRITEFILES 1
-
-/* Convert machine word to binary format */
-static void encode_binary(unsigned long num, char *buf) {
-    int i;
-    unsigned long mask = 1UL << 23; /* Start from MSB (24-bit number) */
-    
-    if (DEBUG_WRITEFILES) {
-        printf("[DEBUG] WriteFiles: Encoding number %lu to binary\n", num);
-    }
-    
-    for (i = 0; i < 24; i++) {
-        buf[i] = (num & mask) ? '1' : '0';
-        mask >>= 1;
-    }
-    buf[24] = '\0';
-    
-    if (DEBUG_WRITEFILES) {
-        printf("[DEBUG] WriteFiles: Binary representation: %s\n", buf);
-    }
-}
-
-/* Convert machine word to hexadecimal format for output file */
+/*
+ * encode_number - Encodes a 24-bit number into hexadecimal format
+ *
+ * Parameters:
+ * num: Number to encode (only lower 24 bits are used)
+ * buf: Buffer to store the encoded string
+ *
+ * Formats the number as a 6-digit lowercase hexadecimal string,
+ * ensuring it fits within 24 bits (mask with 0xFFFFFF)
+ */
 static void encode_number(unsigned long num, char *buf) {
     /* Output in lowercase hexadecimal format, 6 digits (24 bits) */
-    if (DEBUG_WRITEFILES) {
-        printf("[DEBUG] WriteFiles: Encoding number %lu to hexadecimal\n", num);
-    }
-    
     sprintf(buf, "%06lx", num & 0xFFFFFF);
-    
-    if (DEBUG_WRITEFILES) {
-        printf("[DEBUG] WriteFiles: Hexadecimal representation: %s\n", buf);
-    }
 }
 
-/* Write object file (.ob) */
+/*
+ * write_object_file - Creates the object file (.ob) containing machine code
+ *
+ * Parameters:
+ * base_name: Base name for the output file
+ * code: Array of machine code words
+ * data: Array of data values
+ * ic: Final instruction counter
+ * dc: Final data counter
+ *
+ * Returns:
+ * Bool: TRUE if file written successfully, FALSE if error
+ *
+ * File Format:
+ * - First line: <code_size> <data_size>
+ * - Following lines: <address> <encoded_word>
+ *   where encoded_word is 6 hex digits representing 24-bit word
+ */
 Bool write_object_file(const char *base_name, MachineWord **code, long *data,
                       long ic, long dc) {
-    if (DEBUG_WRITEFILES) {
-        printf("[DEBUG] WriteFiles: Writing object file for %s\n", base_name);
-        printf("[DEBUG] WriteFiles: Code size: %ld, Data size: %ld\n", ic - START_IC, dc);
-    }
     char filename[256];
     FILE *fp;
     long addr;
@@ -65,23 +66,15 @@ Bool write_object_file(const char *base_name, MachineWord **code, long *data,
     /* Write header - code and data sizes */
     fprintf(fp, "%ld %ld\n", code_size, dc);
     
-    /* Write code section - this should match the original format */
     for (addr = 0; addr < code_size; addr++) {
         if (code[addr]) {
             unsigned long word = 0;
-            char binary[25]; /* 24 bits + null terminator */
             InstructionWord *inst;
             DataWord *data;
             
             if (code[addr]->is_instruction) {
                 inst = code[addr]->content.code;
-                
-                if (DEBUG_WRITEFILES) {
-                    printf("[DEBUG] WriteFiles: Encoding instruction at address %ld\n", addr + START_IC);
-                    printf("[DEBUG] WriteFiles: OpCode: %d, Src Mode: %d, Src Reg: %d, Dest Mode: %d, Dest Reg: %d, Func: %d, ARE: %d\n",
-                           inst->op, inst->src_mode, inst->src_reg, inst->dest_mode, inst->dest_reg, inst->func, inst->are);
-                }
-                
+
                 /* Convert operation code to the original expected format */
                 /* Encode instruction word following the specification exactly */
                 /* 
@@ -107,70 +100,44 @@ Bool write_object_file(const char *base_name, MachineWord **code, long *data,
                 word |= (inst->func << 3);                      /* Function code: bits 7-3 */
                 word |= inst->are;                              /* ARE: bits 2-0 */
                 
-                if (DEBUG_WRITEFILES) {
-                    printf("[DEBUG] WriteFiles: Instruction word bits:\n");
-                    printf("[DEBUG] WriteFiles:   OpCode (bits 18-23): %06lx\n", ((unsigned long)inst->op << 18) & 0xFFFFFF);
-                    printf("[DEBUG] WriteFiles:   Src Mode (bits 16-17): %06lx\n", ((unsigned long)inst->src_mode << 16) & 0xFFFFFF);
-                    printf("[DEBUG] WriteFiles:   Src Reg (bits 13-15): %06lx\n", ((unsigned long)inst->src_reg << 13) & 0xFFFFFF);
-                    printf("[DEBUG] WriteFiles:   Dest Mode (bits 11-12): %06lx\n", ((unsigned long)inst->dest_mode << 11) & 0xFFFFFF);
-                    printf("[DEBUG] WriteFiles:   Dest Reg (bits 8-10): %06lx\n", ((unsigned long)inst->dest_reg << 8) & 0xFFFFFF);
-                    printf("[DEBUG] WriteFiles:   Func (bits 3-7): %06lx\n", ((unsigned long)inst->func << 3) & 0xFFFFFF);
-                    printf("[DEBUG] WriteFiles:   ARE (bits 0-2): %06lx\n", (unsigned long)inst->are & 0xFFFFFF);
-                    printf("[DEBUG] WriteFiles:   Final word: %06lx\n", word & 0xFFFFFF);
-                }
             } else {
                 data = code[addr]->content.data;
-                
-                if (DEBUG_WRITEFILES) {
-                    printf("[DEBUG] WriteFiles: Encoding data word at address %ld\n", addr + START_IC);
-                    printf("[DEBUG] WriteFiles: Value: %ld, ARE: %d\n", data->value, data->are);
-                }
-                
                 word = (data->value << 3) | data->are;
-                
-                if (DEBUG_WRITEFILES) {
-                    printf("[DEBUG] WriteFiles: Data word bits:\n");
-                    printf("[DEBUG] WriteFiles:   Value (bits 3-23): %06lx\n", ((unsigned long)data->value << 3) & 0xFFFFFF);
-                    printf("[DEBUG] WriteFiles:   ARE (bits 0-2): %06lx\n", (unsigned long)data->are & 0xFFFFFF);
-                    printf("[DEBUG] WriteFiles:   Final word: %06lx\n", word & 0xFFFFFF);
-                }
             }
-            
             encode_number(word, encoded);
-            encode_binary(word, binary);
-            fprintf(fp, "%07ld %s %s\n", addr + START_IC, encoded, binary);
+            fprintf(fp, "%07ld %s\n", addr + START_IC, encoded);
         }
     }
     
-        /* Write data section after the code, as in the original implementation */
     for (addr = 0; addr < dc; addr++) {
-        char binary[25]; /* 24 bits + null terminator */
         unsigned long word;
-        
-        if (DEBUG_WRITEFILES) {
-            printf("[DEBUG] WriteFiles: Encoding data value at address %ld\n", addr + ic);
-            printf("[DEBUG] WriteFiles: Value: %ld\n", data[addr]);
-        }
         
         /* Use the data value directly - no ARE bits for data directives */
         word = data[addr] & 0xFFFFFF; /* Ensure it's a 24-bit value */
         
-        if (DEBUG_WRITEFILES) {
-            printf("[DEBUG] WriteFiles: Data value bits:\n");
-            printf("[DEBUG] WriteFiles:   Value (bits 0-23): %06lx\n", word);
-            printf("[DEBUG] WriteFiles:   Final word: %06lx\n", word);
-        }
-        
         encode_number(word, encoded);
-        encode_binary(word, binary);
-        fprintf(fp, "%07ld %s %s\n", addr + ic, encoded, binary);
+        fprintf(fp, "%07ld %s\n", addr + ic, encoded);
     }
     
     fclose(fp);
     return TRUE;
 }
 
-/* Write entry file (.ent) */
+/*
+ * write_entry_file - Creates the entry file (.ent) for entry symbols
+ *
+ * Parameters:
+ * base_name: Base name for the output file
+ * symbols: Symbol table containing all symbols
+ *
+ * Returns:
+ * Bool: TRUE if file written successfully or no entries,
+ *       FALSE if file creation failed
+ *
+ * File Format:
+ * Each line: <symbol_name> <address>
+ * Only writes file if at least one entry symbol exists
+ */
 Bool write_entry_file(const char *base_name, SymbolTable *symbols) {
     char filename[256];
     FILE *fp;
@@ -205,7 +172,21 @@ Bool write_entry_file(const char *base_name, SymbolTable *symbols) {
     return TRUE;
 }
 
-/* Write external file (.ext) */
+/*
+ * write_extern_file - Creates the external file (.ext) for external references
+ *
+ * Parameters:
+ * base_name: Base name for the output file
+ * symbols: Symbol table containing all symbols
+ *
+ * Returns:
+ * Bool: TRUE if file written successfully or no externals,
+ *       FALSE if file creation failed
+ *
+ * File Format:
+ * Each line: <symbol_name> <reference_address>
+ * Only includes external symbols that are actually referenced (address != 0)
+ */
 Bool write_extern_file(const char *base_name, SymbolTable *symbols) {
     char filename[256];
     FILE *fp;

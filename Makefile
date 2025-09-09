@@ -7,7 +7,7 @@ LDFLAGS =
 SRCS = assembler.c \
        first_pass.c \
        second_pass.c \
-       code.c \
+       binary_machine_code.c \
        instructions.c \
        symbol_table.c \
        utils.c \

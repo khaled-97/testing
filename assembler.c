@@ -1,4 +1,11 @@
-/* Main assembler program */
+/*
+ * Main assembler program - Entry point for the two-pass assembler
+ * This module orchestrates the assembly process:
+ * 1. Preprocesses the input file to handle macros
+ * 2. Performs first pass to build symbol table and encode instructions
+ * 3. Performs second pass to resolve symbols and complete encoding
+ * 4. Generates output files (.ob, .ent, .ext)
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,12 +17,23 @@
 #include "writefiles.h"
 #include "preprocessor.h"
 
-/* Debug flag for assembler */
-#define DEBUG_ASSEMBLER 1
-
 #define MAX_FILENAME 256
 
-/* Process a single assembly source file */
+/*
+ * process_file - Processes a single assembly source file through all assembly stages
+ * 
+ * Parameters:
+ * filename: Name of the assembly source file to process (without extension)
+ * 
+ * Returns:
+ * Bool: TRUE if assembly was successful, FALSE if any errors occurred
+ * 
+ * The function performs these main steps:
+ * 1. Preprocesses the source file to expand macros (.as -> .am)
+ * 2. First pass: builds symbol table and encodes instructions
+ * 3. Second pass: resolves symbols and completes encoding
+ * 4. Generates output files if both passes are successful
+ */
 static Bool process_file(const char *filename) {
     FILE *fp;
     char line_buf[MAX_SOURCE_LINE];
@@ -29,14 +47,13 @@ static Bool process_file(const char *filename) {
     SymbolTable *symbols;
     char *input_filename = malloc(strlen(filename) + 4); /* +4 for .am and null terminator */
     
-    /* Preprocess the file to expand macros */
-    printf("Preprocessing %s...\n", filename);
+    /* Preprocess the source file to expand macros (.as -> .am) */
     if (!preprocess_file(filename)) {
         fprintf(stderr, "Error: Preprocessing failed for %s\n", filename);
         return FALSE;
     }
     
-    /* Create filename with .am extension (preprocessed file) */
+    /* Allocate memory for preprocessed filename (.am extension) */
     if (!input_filename) {
         fprintf(stderr, "Error: Memory allocation failed\n");
         return FALSE;
@@ -44,7 +61,7 @@ static Bool process_file(const char *filename) {
     
     sprintf(input_filename, "%s.am", filename);
     
-    /* Open preprocessed source file */
+    /* Open the preprocessed source file for reading */
     fp = fopen(input_filename, "r");
     if (!fp) {
         fprintf(stderr, "Error: Cannot open file %s\n", input_filename);
@@ -52,7 +69,7 @@ static Bool process_file(const char *filename) {
         return FALSE;
     }
     
-    /* Store base filename (without extension) */
+    /* Store base filename without extension for output files */
     strcpy(basename, filename);
     
     free(input_filename);
@@ -63,50 +80,26 @@ static Bool process_file(const char *filename) {
     /* Initialize line info */
     line.filename = filename;
     
-    /* First Pass */
-    if (DEBUG_ASSEMBLER) {
-        printf("[DEBUG] Assembler: Starting first pass\n");
-    }
-    
+    /* First Pass: Build symbol table and encode instructions */
     while (fgets(line_buf, MAX_SOURCE_LINE, fp)) {
         line.num = line_num++;
         line.text = line_buf;
         
-        if (DEBUG_ASSEMBLER) {
-            printf("[DEBUG] Assembler: Processing line %ld in first pass\n", line.num);
-        }
-        
         if (!process_line_first_pass(line, &ic, &dc, code, data, symbols)) {
-            if (DEBUG_ASSEMBLER) {
-                printf("[DEBUG] Assembler: Error in first pass at line %ld\n", line.num);
-            }
             success = FALSE;
             break;
         }
     }
     
-    if (DEBUG_ASSEMBLER) {
-        printf("[DEBUG] Assembler: First pass %s\n", success ? "completed successfully" : "failed");
-        printf("[DEBUG] Assembler: Final IC=%ld, DC=%ld\n", ic, dc);
-    }
-    
-    /* If first pass successful, update data symbols and do second pass */
+    /* If first pass successful, update data symbol addresses and perform second pass */
     if (success) {
         /* Add IC to each data symbol address (step 1.18-1.19) */
         SymbolEntry *entry;
         long final_ic = ic;  /* Save the final IC */
         
-        if (DEBUG_ASSEMBLER) {
-            printf("[DEBUG] Assembler: Updating data symbol addresses by adding IC=%ld\n", final_ic);
-        }
-        
-        /* Update all data symbols to have addresses after code */
+            /* Update data symbol addresses to follow the code section */
         for (entry = symbols->first; entry; entry = entry->next) {
             if (entry->type == SYMBOL_DATA) {
-                if (DEBUG_ASSEMBLER) {
-                    printf("[DEBUG] Assembler: Updating data symbol %s from address %ld to %ld\n", 
-                           entry->name, entry->address, entry->address + final_ic);
-                }
                 entry->address += final_ic;
             }
         }
@@ -117,43 +110,18 @@ static Bool process_file(const char *filename) {
         ic = START_IC;
         
         /* Second Pass */
-        if (DEBUG_ASSEMBLER) {
-            printf("[DEBUG] Assembler: Starting second pass\n");
-        }
-        
         while (fgets(line_buf, MAX_SOURCE_LINE, fp)) {
             line.num = line_num++;
             line.text = line_buf;
             
-            if (DEBUG_ASSEMBLER) {
-                printf("[DEBUG] Assembler: Processing line %ld in second pass\n", line.num);
-            }
-            
             if (!process_line_second_pass(line, &ic, code, symbols)) {
-                if (DEBUG_ASSEMBLER) {
-                    printf("[DEBUG] Assembler: Error in second pass at line %ld\n", line.num);
-                }
                 success = FALSE;
                 break;
             }
         }
         
-        if (DEBUG_ASSEMBLER) {
-            printf("[DEBUG] Assembler: Second pass %s\n", success ? "completed successfully" : "failed");
-        }
-        
         /* If both passes successful, write output files */
         if (success) {
-            /* Debug: Print all symbols */
-            {
-                SymbolEntry *entry;
-                printf("Symbol Table contents:\n");
-                for (entry = symbols->first; entry; entry = entry->next) {
-                    printf("Symbol: %s, Type: %d, Address: %ld\n", 
-                           entry->name, entry->type, entry->address);
-                }
-            }
-            
             success = write_object_file(basename, code, data, ic, dc) &&
                      write_entry_file(basename, symbols) &&
                      write_extern_file(basename, symbols);
@@ -183,6 +151,19 @@ static Bool process_file(const char *filename) {
     return success;
 }
 
+/*
+ * main - Entry point of the assembler program
+ * 
+ * Parameters:
+ * argc: Number of command line arguments
+ * argv: Array of command line argument strings
+ * 
+ * Returns:
+ * int: 0 if all files processed successfully, 1 if any errors occurred
+ * 
+ * The function processes each input file given as command line arguments.
+ * For each file, it calls process_file to perform the complete assembly process.
+ */
 int main(int argc, char *argv[]) {
     int i;
     Bool success = TRUE;
@@ -195,12 +176,8 @@ int main(int argc, char *argv[]) {
     
     /* Process each input file */
     for (i = 1; i < argc; i++) {
-        printf("Processing %s:\n", argv[i]);
         if (!process_file(argv[i])) {
             success = FALSE;
-            printf("Failed to assemble %s\n", argv[i]);
-        } else {
-            printf("Successfully assembled %s\n", argv[i]);
         }
     }
     

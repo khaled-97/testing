@@ -1,30 +1,49 @@
-/* First pass implementation */
+/*
+ * First Pass Implementation
+ * 
+ * This module handles the first pass of the two-pass assembler.
+ * During the first pass, the assembler:
+ * 1. Builds the symbol table by processing labels
+ * 2. Encodes instructions and their operands
+ * 3. Processes directives (.data, .string, .extern, .entry)
+ * 4. Calculates addresses for code (IC) and data (DC) segments
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "globals.h"
 #include "first_pass.h"
-#include "code.h"
+#include "binary_machine_code.h"
 #include "utils.h"
 #include "instructions.h"
 #include "symbol_table.h"
 
-/* Debug flag for first pass */
-#define DEBUG_FIRST_PASS 1
-
-/* Local function declarations */
+/* Forward declarations of internal functions */
 static Bool process_code_line(SourceLine line, int index, long *ic, MachineWord **code);
 static void handle_extra_words(MachineWord **code, long *ic, char *operand, OpCode opcode);
 
-/* Process a single line in the first pass */
+/*
+ * process_line_first_pass - Processes a single line during the first pass
+ * 
+ * Parameters:
+ * line: Source line containing text, line number, and filename
+ * ic: Pointer to instruction counter
+ * dc: Pointer to data counter
+ * code: Array to store machine code instructions
+ * data: Array to store data values
+ * symbols: Symbol table for storing labels
+ * 
+ * Returns:
+ * Bool: TRUE if line processed successfully, FALSE if error occurred
+ * 
+ * This function:
+ * 1. Processes labels and adds them to symbol table
+ * 2. Handles directives (.data, .string, .extern, .entry)
+ * 3. Processes and encodes instructions
+ * 4. Updates IC and DC counters accordingly
+ */
 Bool process_line_first_pass(SourceLine line, long *ic, long *dc, 
                            MachineWord **code, long *data, SymbolTable *symbols) {
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: Processing line %ld: %s", line.num, line.text);
-    }
-    /* Note: In the original implementation, all data is placed AFTER code.
-       First we process everything, then at the end of the first pass,
-       we update data symbol addresses by adding the final IC value */
     int index = 0;
     char symbol[MAX_SOURCE_LINE];
     Directive dir;
@@ -34,17 +53,11 @@ Bool process_line_first_pass(SourceLine line, long *ic, long *dc,
     
     /* Skip empty or comment lines */
     if (!line.text[index] || line.text[index] == '\n' || line.text[index] == ';') {
-        if (DEBUG_FIRST_PASS) {
-            printf("[DEBUG] First Pass: Skipping empty or comment line\n");
-        }
         return TRUE;
     }
     
     /* Check for label */
     if (get_label(line, symbol)) {
-        if (DEBUG_FIRST_PASS) {
-            printf("[DEBUG] First Pass: Found label: %s\n", symbol);
-        }
         
         /* Invalid label name */
         if (!is_valid_label(symbol)) {
@@ -61,11 +74,7 @@ Bool process_line_first_pass(SourceLine line, long *ic, long *dc,
         if (find_symbol(symbols, symbol)) {
             print_error(line, "Label %s already defined", symbol);
             return FALSE;
-        }
-        
-        if (DEBUG_FIRST_PASS) {
-            printf("[DEBUG] First Pass: Label %s is valid\n", symbol);
-        }
+        }        
     }
     
     /* Empty line after label */
@@ -77,22 +86,11 @@ Bool process_line_first_pass(SourceLine line, long *ic, long *dc,
     
     skip_whitespace(line.text, &index);
     
-    if (DEBUG_FIRST_PASS) {
-        if (dir != DIR_NONE) {
-            printf("[DEBUG] First Pass: Found directive type: %d\n", dir);
-        } else {
-            printf("[DEBUG] First Pass: No directive found, treating as code line\n");
-        }
-    }
-    
     /* Handle directives */
     if (dir != DIR_NONE) {
         /* Add symbol to table for .data/.string */
         if ((dir == DIR_DATA || dir == DIR_STRING) && symbol[0]) {
             add_symbol(symbols, symbol, *dc, SYMBOL_DATA);
-            if (DEBUG_FIRST_PASS) {
-                printf("[DEBUG] First Pass: Added data symbol %s at address %ld\n", symbol, *dc);
-            }
         }
         
         /* Process each directive type */
@@ -118,33 +116,41 @@ Bool process_line_first_pass(SourceLine line, long *ic, long *dc,
     /* Handle code line */
     if (symbol[0]) {
         add_symbol(symbols, symbol, *ic, SYMBOL_CODE);
-        if (DEBUG_FIRST_PASS) {
-            printf("[DEBUG] First Pass: Added code symbol %s at address %ld\n", symbol, *ic);
-        }
-    }
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: Processing code line at IC=%ld\n", *ic);
     }
     return process_code_line(line, index, ic, code);
 }
 
-/* Process a code (instruction) line */
+/*
+ * process_code_line - Processes and encodes an instruction line
+ * 
+ * Parameters:
+ * line: Source line to process
+ * index: Current position in the line
+ * ic: Pointer to instruction counter
+ * code: Array to store encoded machine code
+ * 
+ * Returns:
+ * Bool: TRUE if instruction encoded successfully, FALSE if error occurred
+ * 
+ * This function:
+ * 1. Parses the operation and its operands
+ * 2. Validates operand count and addressing modes
+ * 3. Creates instruction words with appropriate encoding
+ * 4. Handles additional words for operands as needed
+ */
 static Bool process_code_line(SourceLine line, int index, long *ic, MachineWord **code) {
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: process_code_line - Starting at index %d\n", index);
-    }
-    char op[MAX_OP_LEN + 1];
-    char *operands[2] = {NULL, NULL};
-    OpCode opcode;
-    FuncCode func;
-    InstructionWord *inst;
-    int i, op_count;
-    MachineWord *word;
-    long ic_start;
-    AddressMode src_mode = NO_ADDRESSING;
-    AddressMode dest_mode = NO_ADDRESSING;
-    RegNum src_reg = 0; /* Initialize to 0 as default, not NO_REGISTER (-1) */
-    RegNum dest_reg = 0; /* Initialize to 0 as default, not NO_REGISTER (-1) */
+    char op[MAX_OP_LEN + 1];                /* Operation name buffer */
+    char *operands[2] = {NULL, NULL};       /* Array to store operand strings */
+    OpCode opcode;                          /* Operation code (type of instruction) */
+    FuncCode func;                          /* Function code for specific operation */
+    InstructionWord *inst;                  /* Encoded instruction word */
+    int i, op_count;                        /* Loop counter and operand count */
+    MachineWord *word;                      /* Machine word for storing in code array */
+    long ic_start;                          /* Starting IC for calculating instruction length */
+    AddressMode src_mode = NO_ADDRESSING;   /* Addressing mode of source operand */
+    AddressMode dest_mode = NO_ADDRESSING;  /* Addressing mode of destination operand */
+    RegNum src_reg = 0;                     /* Register number for source operand (0 default) */
+    RegNum dest_reg = 0;                    /* Register number for destination operand (0 default) */
     
     /* Get operation name */
     for (i = 0; i < MAX_OP_LEN && line.text[index] && 
@@ -156,9 +162,6 @@ static Bool process_code_line(SourceLine line, int index, long *ic, MachineWord 
     
     /* Get operation details */
     get_operation_details(op, &opcode, &func);
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: Operation: %s, OpCode: %d, Func: %d\n", op, opcode, func);
-    }
     
     if (opcode == OP_INVALID) {
         print_error(line, "Invalid operation: %s", op);
@@ -167,17 +170,7 @@ static Bool process_code_line(SourceLine line, int index, long *ic, MachineWord 
     
     /* Parse operands */
     if (!parse_operands(line, index, operands, &op_count, op)) {
-        if (DEBUG_FIRST_PASS) {
-            printf("[DEBUG] First Pass: Failed to parse operands\n");
-        }
         return FALSE;
-    }
-    
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: Found %d operands\n", op_count);
-        for (i = 0; i < op_count; i++) {
-            printf("[DEBUG] First Pass: Operand %d: %s\n", i+1, operands[i]);
-        }
     }
 
     /* Validate operand count for single-operand instructions */
@@ -253,13 +246,6 @@ static Bool process_code_line(SourceLine line, int index, long *ic, MachineWord 
         }
     }
     
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: Source addressing mode: %d\n", src_mode);
-        printf("[DEBUG] First Pass: Destination addressing mode: %d\n", dest_mode);
-        printf("[DEBUG] First Pass: Source register: %d\n", src_reg);
-        printf("[DEBUG] First Pass: Destination register: %d\n", dest_reg);
-    }
-    
     /* Check for invalid addressing modes */
     if (src_mode == INVALID_ADDR || dest_mode == INVALID_ADDR) {
         if (op_count > 0) {
@@ -267,17 +253,6 @@ static Bool process_code_line(SourceLine line, int index, long *ic, MachineWord 
             if (op_count > 1) free(operands[1]);
         }
         return FALSE;
-    }
-    
-    /* Create instruction word */
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: Creating instruction word with:\n");
-        printf("[DEBUG] First Pass:   OpCode: %d\n", opcode);
-        printf("[DEBUG] First Pass:   Function: %d\n", func);
-        printf("[DEBUG] First Pass:   Source mode: %d\n", src_mode);
-        printf("[DEBUG] First Pass:   Destination mode: %d\n", dest_mode);
-        printf("[DEBUG] First Pass:   Source register: %d\n", src_reg);
-        printf("[DEBUG] First Pass:   Destination register: %d\n", dest_reg);
     }
     
     inst = create_instruction_word(opcode, func, 
@@ -293,22 +268,12 @@ static Bool process_code_line(SourceLine line, int index, long *ic, MachineWord 
     word->content.code = inst;
     code[(*ic)++ - START_IC] = word;
     
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: Stored instruction word at IC=%ld\n", ic_start);
-    }
-    
     /* Handle additional words for operands */
     if (op_count > 0) {
-        if (DEBUG_FIRST_PASS) {
-            printf("[DEBUG] First Pass: Processing extra words for operand 1: %s\n", operands[0]);
-        }
         handle_extra_words(code, ic, operands[0], opcode);
         free(operands[0]);
         
         if (op_count > 1) {
-            if (DEBUG_FIRST_PASS) {
-                printf("[DEBUG] First Pass: Processing extra words for operand 2: %s\n", operands[1]);
-            }
             handle_extra_words(code, ic, operands[1], opcode);
             free(operands[1]);
         }
@@ -316,32 +281,31 @@ static Bool process_code_line(SourceLine line, int index, long *ic, MachineWord 
     
     /* Set instruction length */
     code[ic_start - START_IC]->is_instruction = (*ic) - ic_start;
-    
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: Instruction length: %d words\n", (int)((*ic) - ic_start));
-    }
-    
     return TRUE;
 }
 
-/* Handle additional words needed for operands */
+/*
+ * handle_extra_words - Creates additional words needed for operands
+ * 
+ * Parameters:
+ * code: Array to store machine code
+ * ic: Pointer to instruction counter
+ * operand: Operand string to process
+ * opcode: Operation code for validation
+ * 
+ * This function:
+ * 1. Processes immediate values and encodes them
+ * 2. Reserves space for labels (resolved in second pass)
+ * 3. Handles relative addressing for jump instructions
+ * 4. Updates instruction counter for additional words
+ */
 static void handle_extra_words(MachineWord **code, long *ic, char *operand, OpCode opcode) {
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: handle_extra_words for operand: %s\n", operand);
-    }
     AddressMode mode = get_addressing_mode(operand);
     MachineWord *word;
     
     /* Skip invalid addressing modes and registers */
     if (mode == INVALID_ADDR) {
-        if (DEBUG_FIRST_PASS) {
-            printf("[DEBUG] First Pass: Invalid addressing mode, skipping extra words\n");
-        }
         return;  /* Error already printed in get_addressing_mode */
-    }
-    
-    if (DEBUG_FIRST_PASS) {
-        printf("[DEBUG] First Pass: Operand addressing mode: %d\n", mode);
     }
     
     /* Handle valid addressing modes (except registers which are encoded in instruction) */
@@ -351,57 +315,18 @@ static void handle_extra_words(MachineWord **code, long *ic, char *operand, OpCo
             char *ptr;
             long value = strtol(operand + 1, &ptr, 10);
             
-            if (DEBUG_FIRST_PASS) {
-                printf("[DEBUG] First Pass: Creating data word for immediate value %ld\n", value);
-                printf("[DEBUG] First Pass: Using ARE_ABSOLUTE (4) for immediate value\n");
-            }
-            
             word = (MachineWord*)safe_malloc(sizeof(MachineWord));
             word->is_instruction = 0;
             word->content.data = create_data_word(ARE_ABSOLUTE, value);
             
             code[(*ic)++ - START_IC] = word;
             
-            if (DEBUG_FIRST_PASS) {
-                printf("[DEBUG] First Pass: Added immediate value %ld at IC=%ld\n", value, (*ic)-1);
-                printf("[DEBUG] First Pass: 24-bit word structure:\n");
-                printf("[DEBUG] First Pass:   Value (bits 3-23): %ld\n", value);
-                printf("[DEBUG] First Pass:   ARE (bits 0-2): %d (absolute)\n", ARE_ABSOLUTE);
-                
-                /* Calculate the 24-bit word value for debugging */
-                unsigned long word_value = ((unsigned long)value << 3) | ARE_ABSOLUTE;
-                printf("[DEBUG] First Pass:   24-bit word value: 0x%06lx\n", word_value & 0xFFFFFF);
-                
-                /* Show binary representation */
-                char binary[25];
-                unsigned long mask = 1UL << 23;
-                int i;
-                for (i = 0; i < 24; i++) {
-                    binary[i] = (word_value & mask) ? '1' : '0';
-                    mask >>= 1;
-                }
-                binary[24] = '\0';
-                printf("[DEBUG] First Pass:   Binary representation: %s\n", binary);
-            }
         } else if (mode == DIRECT) {
-            /* Label - leave space for address to be filled in second pass */
-            if (DEBUG_FIRST_PASS) {
-                printf("[DEBUG] First Pass: Direct addressing with label: %s\n", operand);
-                printf("[DEBUG] First Pass: Reserving space for label address to be filled in second pass\n");
-            }
             
             /* Just reserve space for now - will be filled in second pass */
             (*ic)++;
             
-            if (DEBUG_FIRST_PASS) {
-                printf("[DEBUG] First Pass: Reserved space for label address at IC=%ld\n", (*ic)-1);
-            }
         } else if (mode == RELATIVE) {
-            /* Relative label - special handling for jump instructions */
-            if (DEBUG_FIRST_PASS) {
-                printf("[DEBUG] First Pass: Relative addressing with label: %s\n", operand + 1);
-                printf("[DEBUG] First Pass: Reserving space for relative distance to be filled in second pass\n");
-            }
             
             /* Verify that relative addressing is only used with jump instructions */
             if (opcode != OP_JUMPS) {
@@ -417,14 +342,6 @@ static void handle_extra_words(MachineWord **code, long *ic, char *operand, OpCo
             
             /* Reserve space for the relative address (distance) */
             (*ic)++;
-            
-            if (DEBUG_FIRST_PASS) {
-                printf("[DEBUG] First Pass: Reserved space for relative address at IC=%ld\n", (*ic)-1);
-            }
-        }
-    } else if (mode == REGISTER_MODE) {
-        if (DEBUG_FIRST_PASS) {
-            printf("[DEBUG] First Pass: Register mode - no extra words needed (encoded in instruction word)\n");
         }
     }
 }

@@ -1,4 +1,21 @@
-/* Preprocessor implementation for handling macros */
+/*
+ * Macro Preprocessor Implementation
+ *
+ * This module handles the macro expansion phase of the assembler:
+ * 1. Reads source file (.as) and processes macro definitions
+ * 2. Expands macro usages into their full content
+ * 3. Creates preprocessed output file (.am) with expanded macros
+ * 
+ * Macro Format:
+ * mcro name
+ *    [macro content lines]
+ * mcroend
+ *
+ * Rules:
+ * - No nested macros allowed
+ * - Macro names must be unique
+ * - Names cannot be assembler instructions or directives
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +28,10 @@
 #define MAX_MACRO_LINES 100
 #define MAX_MACROS 50
 
-/* Structure to store macro information */
+/*
+ * Macro Information Structure
+ * Stores the name and content lines of each macro definition
+ */
 typedef struct {
     char name[MAX_MACRO_NAME];
     char *lines[MAX_MACRO_LINES];
@@ -22,7 +42,21 @@ typedef struct {
 static Macro macros[MAX_MACROS];
 static int macro_count = 0;
 
-/* Check if a name is a valid macro name */
+/*
+ * is_valid_macro_name - Validates a potential macro name
+ *
+ * Parameters:
+ * name: Name to validate
+ *
+ * Returns:
+ * Bool: TRUE if name is valid, FALSE if not
+ *
+ * Rules:
+ * 1. Must start with letter
+ * 2. Can contain letters, numbers, underscore
+ * 3. Cannot be a reserved word (mcro, mcroend)
+ * 4. Cannot be an instruction or directive name
+ */
 static Bool is_valid_macro_name(const char *name) {
     int i;
     
@@ -59,7 +93,15 @@ static Bool is_valid_macro_name(const char *name) {
     return TRUE;
 }
 
-/* Find a macro by name */
+/*
+ * find_macro - Searches for a macro definition by name
+ *
+ * Parameters:
+ * name: Name of macro to find
+ *
+ * Returns:
+ * Macro*: Pointer to found macro or NULL if not found
+ */
 static Macro* find_macro(const char *name) {
     int i;
     for (i = 0; i < macro_count; i++) {
@@ -70,7 +112,16 @@ static Macro* find_macro(const char *name) {
     return NULL;
 }
 
-/* Add a new macro */
+/*
+ * add_macro - Adds a new macro definition
+ *
+ * Parameters:
+ * name: Name of the new macro
+ *
+ * Returns:
+ * Bool: TRUE if macro added successfully, FALSE if error
+ *       (e.g., invalid name, duplicate name, or max macros reached)
+ */
 static Bool add_macro(const char *name) {
     if (macro_count >= MAX_MACROS) {
         fprintf(stderr, "Error: Too many macros defined\n");
@@ -94,7 +145,16 @@ static Bool add_macro(const char *name) {
     return TRUE;
 }
 
-/* Add a line to the current macro */
+/*
+ * add_line_to_macro - Adds a content line to current macro
+ *
+ * Parameters:
+ * line: Line of text to add to macro definition
+ *
+ * Returns:
+ * Bool: TRUE if line added successfully, FALSE if error
+ *       (e.g., no macro being defined or max lines reached)
+ */
 static Bool add_line_to_macro(const char *line) {
     Macro *current_macro;
     
@@ -116,7 +176,12 @@ static Bool add_line_to_macro(const char *line) {
     return TRUE;
 }
 
-/* Free all allocated memory for macros */
+/*
+ * free_macros - Deallocates all memory used by macro definitions
+ *
+ * Frees all stored macro content lines and resets macro count.
+ * Called after preprocessing is complete.
+ */
 static void free_macros() {
     int i, j;
     
@@ -129,7 +194,24 @@ static void free_macros() {
     macro_count = 0;
 }
 
-/* Process a .as file and create a .am file with expanded macros */
+/*
+ * preprocess_file - Main preprocessor function
+ *
+ * Parameters:
+ * filename: Base name of source file (without .as extension)
+ *
+ * Returns:
+ * Bool: TRUE if preprocessing successful, FALSE if errors
+ *
+ * Process:
+ * 1. Opens input .as file and creates output .am file
+ * 2. Processes each line:
+ *    - Handles macro definitions (mcro/mcroend)
+ *    - Stores macro content lines
+ *    - Expands macro usages
+ * 3. Copies non-macro lines unchanged
+ * 4. Reports any preprocessing errors
+ */
 Bool preprocess_file(const char *filename) {
     FILE *input_fp, *output_fp;
     char line_buf[MAX_SOURCE_LINE];

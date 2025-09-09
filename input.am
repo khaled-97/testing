@@ -12,6 +12,9 @@ cmp K, #-6
 bne &END
 dec W
 .entry MAIN
+cmp r6, #0 
+jmp END
+dec r3
 jmp &LOOP
 add L3, L3
 END: stop

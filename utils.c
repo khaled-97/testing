@@ -1,11 +1,33 @@
-/* Utility functions implementation */
+/*
+ * Utility Functions Implementation
+ *
+ * This module provides common utility functions used throughout the assembler:
+ * 1. Memory management with error checking
+ * 2. Error reporting with source line information
+ * 3. String manipulation (ANSI C90 compliant)
+ * 4. Label handling and validation
+ * 5. Whitespace handling
+ *
+ * All string functions are implemented to be ANSI C90 compliant
+ * and handle NULL pointers safely.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include "utils.h"
 
-/* Memory allocation with error checking */
+/*
+ * safe_malloc - Allocates memory with error checking
+ *
+ * Parameters:
+ * size: Number of bytes to allocate
+ *
+ * Returns:
+ * void*: Pointer to allocated memory
+ *
+ * Exits program if allocation fails to prevent undefined behavior
+ */
 void* safe_malloc(size_t size) {
     void *ptr = malloc(size);
     if (!ptr) {
@@ -15,7 +37,17 @@ void* safe_malloc(size_t size) {
     return ptr;
 }
 
-/* Print error message with line info */
+/*
+ * print_error - Prints formatted error message with source line info
+ *
+ * Parameters:
+ * line: Source line information (file, line number)
+ * format: printf-style format string
+ * ...: Variable arguments for format string
+ *
+ * Prints error to stderr in format:
+ * "Error in [filename] line [number]: [message]"
+ */
 void print_error(SourceLine line, const char *format, ...) {
     va_list args;
     fprintf(stderr, "Error in %s line %ld: ", line.filename, line.num);
@@ -25,13 +57,34 @@ void print_error(SourceLine line, const char *format, ...) {
     fprintf(stderr, "\n");
 }
 
-/* Skip whitespace in a string */
+/*
+ * skip_whitespace - Advances index past whitespace characters
+ *
+ * Parameters:
+ * str: String to examine
+ * index: Pointer to current position (updated)
+ *
+ * Skips spaces and tabs, updates index to first non-whitespace
+ */
 void skip_whitespace(const char *str, int *index) {
     while (str[*index] && (str[*index] == ' ' || str[*index] == '\t'))
         (*index)++;
 }
 
-/* Check if a string is a valid label name */
+/*
+ * is_valid_label - Validates a potential label name
+ *
+ * Parameters:
+ * name: String to check
+ *
+ * Returns:
+ * Bool: TRUE if valid label, FALSE if not
+ *
+ * Rules:
+ * 1. Must start with letter
+ * 2. Can contain letters and numbers
+ * 3. Length must be 1-31 characters
+ */
 Bool is_valid_label(const char *name) {
     int i;
     
@@ -54,7 +107,18 @@ Bool is_valid_label(const char *name) {
     return TRUE;
 }
 
-/* Find and extract label from line if exists */
+/*
+ * get_label - Extracts label from beginning of source line
+ *
+ * Parameters:
+ * line: Source line to examine
+ * label_buf: Buffer to store extracted label
+ *
+ * Returns:
+ * Bool: TRUE if label found, FALSE if not
+ *
+ * Extracts characters up to ':' if present
+ */
 Bool get_label(SourceLine line, char *label_buf) {
     int i = 0, j = 0;
     
@@ -78,7 +142,22 @@ Bool get_label(SourceLine line, char *label_buf) {
     return TRUE;
 }
 
-/* String manipulation */
+/* 
+ * String Manipulation Functions
+ * All functions are ANSI C90 compliant alternatives to standard library
+ */
+
+/*
+ * str_copy - Creates a new copy of a string
+ *
+ * Parameters:
+ * src: Source string to copy
+ *
+ * Returns:
+ * char*: Pointer to new copy, NULL if src is NULL
+ *
+ * Uses safe_malloc to allocate new memory
+ */
 char* str_copy(const char *src) {
     char *dst;
     size_t len;
@@ -92,6 +171,14 @@ char* str_copy(const char *src) {
     return dst - len;
 }
 
+/*
+ * str_trim - Removes leading and trailing whitespace
+ *
+ * Parameters:
+ * str: String to trim (modified in place)
+ *
+ * Handles NULL strings safely
+ */
 void str_trim(char *str) {
     int i, j, len;
     
@@ -115,13 +202,37 @@ void str_trim(char *str) {
     }
 }
 
-/* Safe string functions (ANSI C90 compatible) */
+/*
+ * ANSI C90 Compatible String Functions
+ * Safe implementations that handle NULL pointers
+ */
+
+/*
+ * str_len - Gets length of string
+ *
+ * Parameters:
+ * str: String to measure
+ *
+ * Returns:
+ * size_t: Length of string, 0 if NULL
+ */
 size_t str_len(const char *str) {
     size_t len = 0;
     if (str) while (str[len]) len++;
     return len;
 }
 
+/*
+ * str_cmp - Compares two strings
+ *
+ * Parameters:
+ * s1: First string
+ * s2: Second string
+ *
+ * Returns:
+ * int: <0 if s1<s2, 0 if equal, >0 if s1>s2
+ * Handles NULL strings safely
+ */
 int str_cmp(const char *s1, const char *s2) {
     if (!s1 || !s2) return s1 ? 1 : (s2 ? -1 : 0);
     
@@ -132,6 +243,16 @@ int str_cmp(const char *s1, const char *s2) {
     return *(unsigned char*)s1 - *(unsigned char*)s2;
 }
 
+/*
+ * str_chr - Locates first occurrence of character in string
+ *
+ * Parameters:
+ * str: String to search
+ * c: Character to find
+ *
+ * Returns:
+ * char*: Pointer to found character or NULL if not found
+ */
 char* str_chr(const char *str, int c) {
     if (!str) return NULL;
     

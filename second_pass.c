@@ -1,22 +1,46 @@
-/* Second pass implementation */
+/*
+ * Second Pass Implementation
+ *
+ * This module handles the second pass of the assembler which:
+ * 1. Resolves all symbol references in the code
+ * 2. Processes .entry directives
+ * 3. Handles relative addressing
+ * 4. Generates final machine code with proper ARE bits
+ *
+ * During this pass, all symbols must be defined (from first pass)
+ * and their addresses are used to complete the machine code.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "globals.h"
 #include "second_pass.h"
-#include "code.h"
+#include "binary_machine_code.h"
 #include "utils.h"
 #include "instructions.h"
 #include "symbol_table.h"
 
-/* Process a single line in the second pass */
+/*
+ * process_line_second_pass - Processes a single line during second pass
+ *
+ * Parameters:
+ * line: Source line to process
+ * ic: Pointer to instruction counter
+ * code: Array of machine code words
+ * symbols: Symbol table with all defined symbols
+ *
+ * Returns:
+ * Bool: TRUE if line processed successfully, FALSE if error
+ *
+ * This function:
+ * 1. Processes .entry directives
+ * 2. Resolves symbol references in code
+ * 3. Updates machine code with proper symbol addresses
+ */
 Bool process_line_second_pass(SourceLine line, long *ic, MachineWord **code, SymbolTable *symbols) {
     int index = 0;
     char label[MAX_SOURCE_LINE];
     SymbolEntry *entry;
-    
-    /* Debug print entire line */
-    printf("Second pass processing line: %s", line.text);
     
     /* Skip whitespace and comments */
     skip_whitespace(line.text, &index);
@@ -93,7 +117,17 @@ Bool process_line_second_pass(SourceLine line, long *ic, MachineWord **code, Sym
     return resolve_symbols(line, ic, code, symbols);
 }
 
-/* Get opcode from instruction line */
+/*
+ * get_opcode_from_line - Extracts operation code from instruction line
+ *
+ * Parameters:
+ * line: Source line containing the instruction
+ *
+ * Returns:
+ * OpCode: Operation code for the instruction
+ *
+ * Skips labels and whitespace to find operation name
+ */
 static OpCode get_opcode_from_line(SourceLine line) {
     int index = 0;
     char op[MAX_OP_LEN + 1];
@@ -122,7 +156,23 @@ static OpCode get_opcode_from_line(SourceLine line) {
     return opcode;
 }
 
-/* Add symbols to code words */
+/*
+ * resolve_symbols - Resolves symbol references in instruction operands
+ *
+ * Parameters:
+ * line: Source line with instruction
+ * ic: Pointer to instruction counter
+ * code: Array of machine code words
+ * symbols: Symbol table with all defined symbols
+ *
+ * Returns:
+ * Bool: TRUE if all symbols resolved successfully, FALSE if error
+ *
+ * This function:
+ * 1. Extracts operands from instruction
+ * 2. Resolves symbol addresses
+ * 3. Updates machine code with proper symbol values and ARE bits
+ */
 Bool resolve_symbols(SourceLine line, long *ic, MachineWord **code, SymbolTable *symbols) {
     char label[MAX_SOURCE_LINE];
     char *operands[2];
@@ -134,7 +184,6 @@ Bool resolve_symbols(SourceLine line, long *ic, MachineWord **code, SymbolTable 
     
     /* Get instruction length */
     inst_len = code[(*ic) - START_IC]->is_instruction;
-    printf("Line: '%s', instruction length: %d, ic: %ld\n", line.text, inst_len, *ic);
     
     /* Don't skip operations with length 1 - they may still have operands that need symbol resolution */
     
@@ -174,7 +223,28 @@ Bool resolve_symbols(SourceLine line, long *ic, MachineWord **code, SymbolTable 
     return success;
 }
 
-/* Process operand in second pass */
+/*
+ * process_operand_second_pass - Processes a single operand during second pass
+ *
+ * Parameters:
+ * line: Source line containing the operand
+ * curr_ic: Pointer to current instruction counter
+ * start_ic: Pointer to instruction start address
+ * operand: Operand string to process
+ * code: Array of machine code words
+ * symbols: Symbol table with all defined symbols
+ * opcode: Operation code for validation
+ *
+ * Returns:
+ * Bool: TRUE if operand processed successfully, FALSE if error
+ *
+ * This function:
+ * 1. Handles direct and relative addressing modes
+ * 2. Resolves symbol addresses
+ * 3. Calculates relative distances for jump instructions
+ * 4. Sets proper ARE bits based on symbol type
+ * 5. Creates additional entries for external references
+ */
 Bool process_operand_second_pass(SourceLine line, long *curr_ic, long *start_ic, 
                                char *operand, MachineWord **code, SymbolTable *symbols,
                                OpCode opcode) {
@@ -197,19 +267,12 @@ Bool process_operand_second_pass(SourceLine line, long *curr_ic, long *start_ic,
         /* Remove & for relative addressing */
         if (mode == RELATIVE) sym_name++;
         
-        /* Debug print */
-        printf("Processing operand: %s (mode: %d)\n", operand, mode);
-        
         /* Look for symbol */
         symbol = find_symbol(symbols, sym_name);
         if (!symbol) {
             print_error(line, "Undefined symbol: %s", sym_name);
             return FALSE;
         }
-        
-        /* Debug print */
-        printf("Found symbol: %s, type: %d, address: %ld\n", 
-               symbol->name, symbol->type, symbol->address);
         
         /* Validate relative addressing usage with jump instructions */
         if (mode == RELATIVE && opcode != OP_JUMPS) {

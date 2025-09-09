@@ -10,7 +10,7 @@ typedef enum {
 
 /* System limits */
 #define MAX_CODE_SIZE 1200    /* Maximum instructions memory */
-#define MAX_SOURCE_LINE 80   /* Maximum input line length */
+#define MAX_SOURCE_LINE 81   /* Maximum input line length */
 #define START_IC 100         /* Initial instruction counter */
 
 /* Addressing modes */

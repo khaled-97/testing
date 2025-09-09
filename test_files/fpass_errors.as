@@ -5,13 +5,13 @@ LABEL: .data -0,5,6,7,2,6
 CODELABEL: mov r0,r1
 LOCALCODE: add r0,r1
 LOCALDATA: .string "Some local data"
-LABEL: .string "Same label twice!"
-CODELABEL: .data "Again!"
+LABEL1: .string "Same label twice!"
+CODELABEL1: .data 5
 .extern LOCALCODE
 .extern LOCALDATA
 .extern WHATEVEREXT
 .extern LONGLONGLONGLONGLONGLONGLABEL
-.extern 1nvalidLabel
+.extern Label@With4t
 .extern Label@With4t
 .extern
 WHATEVEREXT: .string "Another definition!"
